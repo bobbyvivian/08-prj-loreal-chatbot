@@ -7,6 +7,15 @@ const sendBtn = document.getElementById("sendBtn");
 // Chat state
 let isLoading = false;
 let conversationHistory = [];
+let userProfile = {
+  name: null,
+  skinType: null,
+  skinConcerns: [],
+  hairType: null,
+  preferredProducts: [],
+  previousRecommendations: [],
+  conversationCount: 0,
+};
 
 // L'Oréal product knowledge and context
 const LOREAL_CONTEXT = `
@@ -35,30 +44,201 @@ You are a L'Oréal Beauty Advisor AI assistant. Your expertise covers:
 - Men's fragrances and grooming
 - Seasonal and occasion-based recommendations
 
+**CONVERSATION GUIDELINES:**
+- Remember user details shared during conversation (name, preferences, skin/hair type)
+- Reference previous recommendations and build upon them
+- Ask follow-up questions to better understand their needs
+- Provide personalized advice based on their profile
+- Be warm, friendly, and maintain conversation continuity
+
 Provide personalized recommendations based on:
 - Skin type, tone, and concerns
 - Hair type and styling needs
 - Personal style and preferences
 - Occasion and lifestyle
 - Budget considerations
+- Previous conversation history and user preferences
 
-Always be friendly, knowledgeable, and focus on helping users find the perfect L'Oréal products for their beauty needs.
+Always be friendly, knowledgeable, and focus on helping users find the perfect L'Oréal products for their beauty needs. Remember details they share to make the conversation feel personal and continuous.
 `;
 
 // Initialize chat
 function initializeChat() {
   clearChatWindow();
-  addMessage(
-    "system",
-    "👋 Welcome to L'Oréal Beauty Advisor! I'm here to help you discover the perfect products for your beauty routine. Ask me about makeup, skincare, haircare, or fragrances!"
-  );
+
+  // Check if we have returning user data
+  loadUserProfile();
+
+  const welcomeMessage = userProfile.name
+    ? `👋 Welcome back, ${userProfile.name}! I'm here to continue helping you with your L'Oréal beauty routine. How can I assist you today?`
+    : "👋 Welcome to L'Oréal Beauty Advisor! I'm here to help you discover the perfect products for your beauty routine. Ask me about makeup, skincare, haircare, or fragrances!";
+
+  addMessage("system", welcomeMessage);
 
   conversationHistory = [
     {
       role: "system",
-      content: LOREAL_CONTEXT,
+      content: LOREAL_CONTEXT + getUserProfileContext(),
     },
   ];
+
+  userProfile.conversationCount++;
+  saveUserProfile();
+}
+
+// Generate user profile context for AI
+function getUserProfileContext() {
+  if (!userProfile.name && userProfile.conversationCount === 0) {
+    return "";
+  }
+
+  let context = "\n\n**USER PROFILE:**\n";
+
+  if (userProfile.name) {
+    context += `- Name: ${userProfile.name}\n`;
+  }
+
+  if (userProfile.skinType) {
+    context += `- Skin Type: ${userProfile.skinType}\n`;
+  }
+
+  if (userProfile.skinConcerns.length > 0) {
+    context += `- Skin Concerns: ${userProfile.skinConcerns.join(", ")}\n`;
+  }
+
+  if (userProfile.hairType) {
+    context += `- Hair Type: ${userProfile.hairType}\n`;
+  }
+
+  if (userProfile.preferredProducts.length > 0) {
+    context += `- Preferred Products: ${userProfile.preferredProducts.join(
+      ", "
+    )}\n`;
+  }
+
+  if (userProfile.previousRecommendations.length > 0) {
+    context += `- Previous Recommendations: ${userProfile.previousRecommendations
+      .slice(-3)
+      .join(", ")}\n`;
+  }
+
+  context += `- Conversation Count: ${userProfile.conversationCount}\n`;
+  context +=
+    "\nUse this information to provide personalized advice and reference past interactions naturally.";
+
+  return context;
+}
+
+// Extract user information from messages
+function extractUserInfo(userMessage, aiResponse) {
+  const message = userMessage.toLowerCase();
+
+  // Extract name
+  const namePatterns = [
+    /my name is (\w+)/i,
+    /i'm (\w+)/i,
+    /call me (\w+)/i,
+    /i am (\w+)/i,
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = userMessage.match(pattern);
+    if (match && match[1] && match[1].length > 1) {
+      userProfile.name = match[1].charAt(0).toUpperCase() + match[1].slice(1);
+      break;
+    }
+  }
+
+  // Extract skin type
+  const skinTypes = [
+    "oily",
+    "dry",
+    "combination",
+    "sensitive",
+    "normal",
+    "mature",
+  ];
+  for (const type of skinTypes) {
+    if (message.includes(type + " skin")) {
+      userProfile.skinType = type;
+      break;
+    }
+  }
+
+  // Extract skin concerns
+  const skinConcerns = [
+    "acne",
+    "wrinkles",
+    "dark spots",
+    "fine lines",
+    "pores",
+    "dullness",
+    "uneven tone",
+  ];
+  for (const concern of skinConcerns) {
+    if (
+      message.includes(concern) &&
+      !userProfile.skinConcerns.includes(concern)
+    ) {
+      userProfile.skinConcerns.push(concern);
+    }
+  }
+
+  // Extract hair type
+  const hairTypes = [
+    "curly",
+    "straight",
+    "wavy",
+    "thick",
+    "thin",
+    "fine",
+    "coarse",
+    "damaged",
+    "color-treated",
+  ];
+  for (const type of hairTypes) {
+    if (message.includes(type + " hair")) {
+      userProfile.hairType = type;
+      break;
+    }
+  }
+
+  // Extract product preferences from AI response
+  const productMentions = aiResponse.match(
+    /([A-Z][a-z]+ [A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g
+  );
+  if (productMentions) {
+    for (const product of productMentions.slice(0, 3)) {
+      // Limit to avoid clutter
+      if (!userProfile.previousRecommendations.includes(product)) {
+        userProfile.previousRecommendations.push(product);
+      }
+    }
+  }
+
+  saveUserProfile();
+}
+
+// Save user profile to localStorage
+function saveUserProfile() {
+  try {
+    localStorage.setItem("lorealUserProfile", JSON.stringify(userProfile));
+  } catch (error) {
+    console.log("Could not save user profile:", error);
+  }
+}
+
+// Load user profile from localStorage
+function loadUserProfile() {
+  try {
+    const saved = localStorage.getItem("lorealUserProfile");
+    if (saved) {
+      const savedProfile = JSON.parse(saved);
+      userProfile = { ...userProfile, ...savedProfile };
+    }
+  } catch (error) {
+    console.log("Could not load user profile:", error);
+  }
 }
 
 // Clear chat window
